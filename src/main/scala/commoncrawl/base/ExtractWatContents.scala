@@ -42,21 +42,12 @@ object ExtractWatContents {
 
   }
 
-  def explodeWatFilesToHive(watFilePath:String,maxNumOfFilesToProcess:Int)(implicit spark: SparkSession) : Unit = {
-    // get WatFileListYetToProcess
-    // for each files in WAT list call insertOrAppendToHive
-
-  }
-
-
   // Function to process a file
   def processFile(fullyQualifiedWatFileName:String, processedFolderPath: String)(hiveTable: HiveTable)(implicit spark: SparkSession): Unit = {
 
     val fs = FileSystem.get(spark.sparkContext.hadoopConfiguration)
-    // Your processing logic here
     extractWatFileToHiveTable(fullyQualifiedWatFileName)(hiveTable)
 
-    // Save the processed file name to a different location
     val fileName = new Path(fullyQualifiedWatFileName).getName
     val processedFilePath = new Path(processedFolderPath, s"processed_$fileName")
     fs.create(processedFilePath).close()
@@ -73,6 +64,7 @@ object ExtractWatContents {
     // List files in HDFS folder
     val fileStatuses = fs.listStatus(new Path(rawWatFilesPath))
     val filePaths = fileStatuses.map(_.getPath.toString)
+    fs.close()
     filePaths
   }
 
@@ -86,6 +78,7 @@ object ExtractWatContents {
         processedFiles += status.getPath.toString
       }
     }
+    fs.close()
     processedFiles
   }
 
