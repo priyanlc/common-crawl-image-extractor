@@ -120,5 +120,6 @@ spark-warehouse/
 # For SBT
 .jvmopts
 
+src/test/resources/processed_file_path/
 
 
