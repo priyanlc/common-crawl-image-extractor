@@ -1,7 +1,8 @@
 package commoncrawl.base
 
+import com.holdenkarau.spark.testing.Prettify.maxNumberOfShownValues
 import com.holdenkarau.spark.testing.SharedSparkContext
-import commoncrawl.base.ExtractWatContents.{createHiveTableIfNotExist, extractWATContentsAsDataframe, insertOrAppendToHiveTable, processFile}
+import commoncrawl.base.ExtractWatContents.{createHiveTableIfNotExist, extractWATContentsAsDataframe, getProcessedFileNames, insertOrAppendToHiveTable, listHdfsFiles, processFile, processRawWatFiles}
 import org.apache.spark.sql.{DataFrame, SparkSession}
 import org.scalatest.BeforeAndAfterAll
 import org.scalatest.funsuite.AnyFunSuite
@@ -26,6 +27,7 @@ class ExtractWATContentsTest extends AnyFunSuite with SharedSparkContext{
   val hiveTablePath = "spark-warehouse/tmp/test_db1.db/raw_links"
   val fullWatFilePath = s"$rawWatFilePath/$sampleWatFileName"
   val processedFilePath = "src/test/resources/processed_file_path"
+  val explodedRawWatFilesHiveTable: HiveTable = HiveTable(fullyQualifiedHiveTableName, hiveTablePath)
 
   test("extractWATContents should return a DataFrame from WAT file") {
 
@@ -34,14 +36,13 @@ class ExtractWATContentsTest extends AnyFunSuite with SharedSparkContext{
     assert(result.count()>0)
   }
 
-
   test("insert hive table with dataframe when the table does not exist") {
     spark.sql(s"DROP TABLE IF EXISTS $fullyQualifiedHiveTableName ")
     val raw_links_path=new Path("spark-warehouse/tmp/test_db1.db/raw_links")
     fs.delete(raw_links_path,true)
 
     val dataFrame = extractWATContentsAsDataframe(fullWatFilePath)
-    insertOrAppendToHiveTable(fullyQualifiedHiveTableName,hiveTablePath,dataFrame)
+    insertOrAppendToHiveTable(dataFrame)(explodedRawWatFilesHiveTable)
     spark.sql(s"refresh table $fullyQualifiedHiveTableName")
 
     assert(spark.read.table(fullyQualifiedHiveTableName).count() > 0)
@@ -50,30 +51,36 @@ class ExtractWATContentsTest extends AnyFunSuite with SharedSparkContext{
   test("insert hive table with dataframe when the table exist") {
 
     val dataFrame = extractWATContentsAsDataframe(fullWatFilePath)
-    insertOrAppendToHiveTable(fullyQualifiedHiveTableName,hiveTablePath, dataFrame)
+    insertOrAppendToHiveTable(dataFrame)(explodedRawWatFilesHiveTable)
     spark.sql(s"refresh table $fullyQualifiedHiveTableName")
 
     assert(spark.read.table(fullyQualifiedHiveTableName).count() > 0)
   }
 
-  //https://medium.com/expedia-group-tech/unit-testing-apache-spark-applications-using-hive-tables-ec653c6f25be
-
-  // next test, a folder will contain a list of files.  I want to read this full list. For each file in the list I want to call this above function.
-//  test("insert exploded wat files to hive table") {
-//    explodeWatFilesToHive(rawWatFilePath);
-//
-//    spark.sql(s"refresh table $fullyQualifiedTableName")
-//    assert(spark.read.table(fullyQualifiedTableName).count() > 0)
-//
-//
-//  }
-
   test("explode wat file and save to hive table and save the file name in hdfs") {
 
-  processFile(fullWatFilePath, processedFilePath, fullyQualifiedHiveTableName, hiveTablePath)
+  processFile(fullWatFilePath, processedFilePath)(explodedRawWatFilesHiveTable)
     spark.sql(s"refresh table $fullyQualifiedHiveTableName")
 
     assert(spark.read.table(fullyQualifiedHiveTableName).count() > 0)
+  }
+
+  test("list the number of files in the hdfs folder location") {
+
+    val watFiles = listHdfsFiles(rawWatFilePath)
+    assert(watFiles.length > 0)
+  }
+
+  test("Load the set of processed files from a persistent location") {
+
+    val processedFileNames = getProcessedFileNames(processedFilePath)
+    assert(processedFileNames.nonEmpty)
+  }
+
+  test("Process files one by one, excluding those already processed") {
+
+    val processedFileNames = processRawWatFiles(rawWatFilePath,processedFilePath)(explodedRawWatFilesHiveTable)
+    assert(processedFileNames.nonEmpty)
   }
 
 }

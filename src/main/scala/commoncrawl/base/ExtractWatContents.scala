@@ -5,6 +5,8 @@ import org.apache.spark
 import org.apache.spark.sql.SaveMode
 import org.apache.spark.sql.functions.explode
 
+case class HiveTable(hiveTableName: String, hiveTablePath: String)
+
 object ExtractWatContents {
 
   import org.apache.spark.sql.{DataFrame, SparkSession}
@@ -31,12 +33,12 @@ object ExtractWatContents {
     df.write.mode(SaveMode.Append)saveAsTable(fullyQualifiedTableName)
   }
 
-  def insertOrAppendToHiveTable(fullyQualifiedTableName: String, hiveTablePath: String, dataFrame: DataFrame)(implicit spark: SparkSession): Unit = {
+  def insertOrAppendToHiveTable( dataFrame: DataFrame)(hiveTable: HiveTable)(implicit spark: SparkSession): Unit = {
 
-    if(spark.catalog.tableExists(fullyQualifiedTableName))
-      appendDataframeToHiveTable(fullyQualifiedTableName,dataFrame)
+    if(spark.catalog.tableExists(hiveTable.hiveTableName))
+      appendDataframeToHiveTable(hiveTable.hiveTableName,dataFrame)
     else
-      createHiveTableIfNotExist(fullyQualifiedTableName,hiveTablePath,dataFrame)
+      createHiveTableIfNotExist(hiveTable.hiveTableName,hiveTable.hiveTablePath,dataFrame)
 
   }
 
@@ -48,21 +50,59 @@ object ExtractWatContents {
 
 
   // Function to process a file
-  def processFile(fullyQualifiedWatFileName:String, outputFolderPath: String, hiveTableName: String, hiveTablePath: String)(implicit spark: SparkSession): Unit = {
+  def processFile(fullyQualifiedWatFileName:String, processedFolderPath: String)(hiveTable: HiveTable)(implicit spark: SparkSession): Unit = {
 
     val fs = FileSystem.get(spark.sparkContext.hadoopConfiguration)
     // Your processing logic here
-    extractWatFileToHiveTable(fullyQualifiedWatFileName,hiveTableName,hiveTablePath)
+    extractWatFileToHiveTable(fullyQualifiedWatFileName)(hiveTable)
 
     // Save the processed file name to a different location
     val fileName = new Path(fullyQualifiedWatFileName).getName
-    val outputFilePath = new Path(outputFolderPath, s"processed_$fileName")
-    fs.create(outputFilePath).close()
+    val processedFilePath = new Path(processedFolderPath, s"processed_$fileName")
+    fs.create(processedFilePath).close()
   }
 
-  private def extractWatFileToHiveTable(fullyQualifiedWatFileName:String, hiveTableName:String, hiveTablePath:String)(implicit spark: SparkSession): Unit = {
+  private def extractWatFileToHiveTable(fullyQualifiedWatFileName:String)(hiveTable: HiveTable)(implicit spark: SparkSession): Unit = {
     val df = extractWATContentsAsDataframe(fullyQualifiedWatFileName)
-    insertOrAppendToHiveTable(hiveTableName,hiveTablePath, df)
+    insertOrAppendToHiveTable(df)(hiveTable)
+  }
+
+  def listHdfsFiles(rawWatFilesPath: String)(implicit spark: SparkSession): Array[String] = {
+
+    val fs = FileSystem.get(spark.sparkContext.hadoopConfiguration)
+    // List files in HDFS folder
+    val fileStatuses = fs.listStatus(new Path(rawWatFilesPath))
+    val filePaths = fileStatuses.map(_.getPath.toString)
+    filePaths
+  }
+
+  def getProcessedFileNames(processedFilePath:String)(implicit spark:SparkSession): Set[String] = {
+    val fs = FileSystem.get(spark.sparkContext.hadoopConfiguration)
+    var processedFiles = Set[String]()
+    val processedFilesPath = new Path(processedFilePath)
+    if (fs.exists(processedFilesPath)) {
+      val processedFileStatuses = fs.listStatus(processedFilesPath)
+      processedFileStatuses.foreach { status =>
+        processedFiles += status.getPath.toString
+      }
+    }
+    processedFiles
+  }
+
+  def processRawWatFiles(rawWatFilesPath:String,processedFilePath:String)(hiveTable: HiveTable)(implicit spark:SparkSession) : Set[String] ={
+
+   var processedFiles =  getProcessedFileNames(processedFilePath)
+   val watFilePaths =  listHdfsFiles(rawWatFilesPath)
+
+    watFilePaths.foreach { filePath =>
+      if (!processedFiles.contains(filePath)) {
+        // Process the file
+        processFile(filePath,processedFilePath)(hiveTable)
+        // Add the processed file to the set
+        processedFiles += filePath
+      }
+    }
+    processedFiles
   }
 
 }
