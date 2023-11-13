@@ -107,6 +107,7 @@ metastore_db/
 sql/hive-thriftserver/test_warehouses
 warehouse/
 spark-warehouse/
+src/test/resources/hdfs_file_system/outputs/**
 
 # For R session data
 .RData
