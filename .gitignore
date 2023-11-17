@@ -108,7 +108,8 @@ sql/hive-thriftserver/test_warehouses
 warehouse/
 spark-warehouse/
 src/test/resources/hdfs_file_system/outputs/**
-
+src/test/resources/hdfs_file_system/outputs/
+src/test/resources/wat_files_archived/**
 # For R session data
 .RData
 .RHistory

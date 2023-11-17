@@ -34,7 +34,13 @@ libraryDependencies ++= Seq(
   "org.scalatest" %% "scalatest" % "3.2.15" % Test,
 
   // Mockito for mocking in ScalaTest
-  "org.scalatestplus" %% "scalatestplus-mockito" % "1.0.0-M2" % Test,
+//  "org.scalatestplus" %% "scalatestplus-mockito" % "1.0.0-M2" % Test,
 
-  "com.holdenkarau" %% "spark-testing-base" % "3.3.1_1.4.0" % Test
+  "com.holdenkarau" %% "spark-testing-base" % "3.3.1_1.4.0" % Test,
+
+//  "org.mockito" %% "mockito-scala" % "1.17.29" % Test,
+
+  "org.scalatestplus" %% "mockito-4-11" % "3.2.17.0" % Test
+
+
 )

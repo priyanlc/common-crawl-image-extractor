@@ -1,9 +1,10 @@
 package commoncrawl.base
 
+import commoncrawl.base.FileOperations.{getProcessedFileNames, keepTrackOfProcessedFile, listHdfsFiles}
 import org.apache.hadoop.fs.{FileSystem, Path}
 import org.apache.spark
-import org.apache.spark.sql.SaveMode
-import org.apache.spark.sql.functions.{col, explode}
+import org.apache.spark.sql.{SaveMode, functions}
+import org.apache.spark.sql.functions.{col, explode, lit, regexp_replace}
 
 case class HiveTable(hiveTableName: String, hiveTablePath: String)
 
@@ -55,13 +56,11 @@ object ExtractWatContents {
 
   // Function to process a file
   def processFile(fullyQualifiedWatFileName:String, processedFolderPath: String)(hiveTable: HiveTable)(implicit spark: SparkSession): Unit = {
-
-    val fs = FileSystem.get(spark.sparkContext.hadoopConfiguration)
     extractWatFileToHiveTable(fullyQualifiedWatFileName)(hiveTable)
-
     val fileName = new Path(fullyQualifiedWatFileName).getName
-    val processedFilePath = new Path(processedFolderPath, s"processed_$fileName")
-    fs.create(processedFilePath).close()
+    val hdfsClient = FileSystem.get(spark.sparkContext.hadoopConfiguration)
+    keepTrackOfProcessedFile(hdfsClient,fileName,processedFolderPath)
+
   }
 
   private def extractWatFileToHiveTable(fullyQualifiedWatFileName:String)(hiveTable: HiveTable)(implicit spark: SparkSession): Unit = {
@@ -69,29 +68,6 @@ object ExtractWatContents {
     insertOrAppendToHiveTable(df)(hiveTable)
   }
 
-  def listHdfsFiles(rawWatFilesPath: String)(implicit spark: SparkSession): Array[String] = {
-
-    val fs = FileSystem.get(spark.sparkContext.hadoopConfiguration)
-    // List files in HDFS folder
-    val fileStatuses = fs.listStatus(new Path(rawWatFilesPath))
-    val filePaths = fileStatuses.map(_.getPath.toString)
-    fs.close()
-    filePaths
-  }
-
-  def getProcessedFileNames(processedFilePath:String)(implicit spark:SparkSession): Set[String] = {
-    val fs = FileSystem.get(spark.sparkContext.hadoopConfiguration)
-    var processedFiles = Set[String]()
-    val processedFilesPath = new Path(processedFilePath)
-    if (fs.exists(processedFilesPath)) {
-      val processedFileStatuses = fs.listStatus(processedFilesPath)
-      processedFileStatuses.foreach { status =>
-        processedFiles += status.getPath.toString
-      }
-    }
-    fs.close()
-    processedFiles
-  }
 
   def processRawWatFiles(rawWatFilesPath:String,processedFilePath:String)(hiveTable: HiveTable)(implicit spark:SparkSession) : Set[String] ={
 
@@ -144,13 +120,33 @@ def extractPngFromAllUrls(explodedRawWatFilesHiveTable: HiveTable, pngUrlHiveTab
 
  }
 
+  def convertFromHdfsToHive(hdfsPath: String,hiveTable: HiveTable)(implicit spark: SparkSession): Unit = {
+    val csvDF = spark.read
+      .option("header", "true") // use "true" if your file has a header row, else "false"
+      .option("inferSchema", "true") // to automatically infer data types; else, define the schema manually
+      .csv(hdfsPath)
 
-  def exportHiveTableToHdfsCsv(hiveTable: HiveTable, hdfsPath: String)(implicit spark: SparkSession): Unit = {
-    val warcFileListDf = spark.table(hiveTable.hiveTableName)
-    import spark.implicits._
-    warcFileListDf.coalesce(1).write.option("sep", "|").csv(hdfsPath)
+    csvDF.write.mode("overwrite").saveAsTable(hiveTable.hiveTableName)
   }
 
+  def convertWarcFilePathsToWatFilePaths(warcFileListTable: HiveTable, watFileDestination: HiveTable)(implicit spark: SparkSession): DataFrame = {
+    import spark.implicits._
+    val prefixVal = "https://data.commoncrawl.org/"
+
+    val warcFileListDf = spark.table(warcFileListTable.hiveTableName)
+    val intermediateWatFileNameDf = warcFileListDf
+                                    .withColumn("wat_filename_temp", regexp_replace(warcFileListDf("warc_filename"), "\\/warc\\/", "\\/wat\\/"))
+                                    .drop("warc_filename")
+    val watFileNameDf = intermediateWatFileNameDf
+                          .withColumn("wat_filename", regexp_replace(intermediateWatFileNameDf("wat_filename_temp"), "\\.warc", "\\.warc.wat"))
+                          .drop("wat_filename_temp")
+
+    watFileNameDf.withColumn("full_wat_path", functions.concat(lit(prefixVal), watFileNameDf.col("wat_filename")))
+      .drop("wat_filename")
+      .write.mode(SaveMode.Overwrite).saveAsTable(watFileDestination.hiveTableName)
+
+   spark.table(watFileDestination.hiveTableName)
+  }
 
 
 }
