@@ -215,4 +215,16 @@ object FileOperations {
     }
   }
 
+  def time[R](block: => R): R = {
+    val start = System.nanoTime()
+    val result = block // call-by-name
+    val end = System.nanoTime()
+    println(s"Elapsed time: ${(end - start) / 1e9} seconds")
+    result
+  }
+
+  def pauseExecution(seconds: Int): Unit = {
+    Thread.sleep(seconds * 1000L) // Multiply by 1000 to convert seconds to milliseconds
+  }
+
 }

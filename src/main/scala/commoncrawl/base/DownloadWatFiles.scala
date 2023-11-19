@@ -1,7 +1,7 @@
 package commoncrawl.base
 
 import commoncrawl.base.Configuration.{downloadedWatFileState, pathToWatFileHdfsFolder, pathToWatFileStagingArea, watFileUrlListPath}
-import commoncrawl.base.FileOperations.{copyToHdfs, downloadFile, extractFileNameFromURL, getProcessedFileNames, keepTrackOfProcessedFile, moveToArchive, readWatFilesList}
+import commoncrawl.base.FileOperations.{copyToHdfs, downloadFile, extractFileNameFromURL, getProcessedFileNames, keepTrackOfProcessedFile, moveToArchive, pauseExecution, readWatFilesList, time}
 import org.apache.hadoop.conf.Configuration
 import org.apache.hadoop.fs.{FileSystem, Path}
 import org.apache.spark
@@ -26,45 +26,46 @@ object DownloadWatFiles {
 
 
   def main(args: Array[String]): Unit = {
+    time {
 
-    if (args.length < 1 || !args(0).matches("\\d+")) {
-      System.err.println("Usage: MyApp <numberOfFilesToDownload>")
-      System.exit(1)
-    }
-
-    implicit val spark: SparkSession = SparkSession.builder()
-      .appName("My Spark Application")
-      .config("spark.master", "local")
-      .getOrCreate()
-
-    val numberOfFilesToDownload = args(0).toInt
-
-    val hdfsClient = FileSystem.get(spark.sparkContext.hadoopConfiguration)
-
-    var processedFiles = getProcessedFileNames(downloadedWatFileState)
-
-    val watFiles = readWatFilesList(hdfsClient, watFileUrlListPath)
-
-    var filesDownloaded = 0
-
-    // Process each file until the limit is reached
-    watFiles.foreach { watFileUrl =>
-      val watFileName = extractFileNameFromURL(watFileUrl)
-      if (!processedFiles.contains(watFileName) && filesDownloaded < numberOfFilesToDownload) {
-        downloadFile(watFileUrl, pathToWatFileStagingArea)
-        copyToHdfs(pathToWatFileStagingArea + watFileName, pathToWatFileHdfsFolder, hdfsClient)
-      //  moveToArchive(pathToWatFileStagingArea + watFileName, pathToWatFileArchiveFolder)
-      //  println("### Moved to Archive " +watFileName)
-        keepTrackOfProcessedFile(hdfsClient, watFileName, downloadedWatFileState)
-        processedFiles += watFileName
-
-        filesDownloaded += 1
+      if (args.length < 1 || !args(0).matches("\\d+")) {
+        System.err.println("Usage: MyApp <numberOfFilesToDownload>")
+        System.exit(1)
       }
+
+      implicit val spark: SparkSession = SparkSession.builder()
+        .appName("My Spark Application")
+        .config("spark.master", "local")
+        .getOrCreate()
+
+      val numberOfFilesToDownload = args(0).toInt
+
+      val hdfsClient = FileSystem.get(spark.sparkContext.hadoopConfiguration)
+
+      var processedFiles = getProcessedFileNames(downloadedWatFileState)
+
+      val watFiles = readWatFilesList(hdfsClient, watFileUrlListPath)
+
+      var filesDownloaded = 0
+
+      // Process each file until the limit is reached
+      watFiles.foreach { watFileUrl =>
+        val watFileName = extractFileNameFromURL(watFileUrl)
+        if (!processedFiles.contains(watFileName) && filesDownloaded < numberOfFilesToDownload) {
+          downloadFile(watFileUrl, pathToWatFileStagingArea)
+          pauseExecution(5)
+          copyToHdfs(pathToWatFileStagingArea + watFileName, pathToWatFileHdfsFolder, hdfsClient)
+          pauseExecution(5)
+          keepTrackOfProcessedFile(hdfsClient, watFileName, downloadedWatFileState)
+          processedFiles += watFileName
+
+          filesDownloaded += 1
+        }
+      }
+
+      spark.stop()
+
     }
-
-    spark.stop()
-
   }
-
 
 }
