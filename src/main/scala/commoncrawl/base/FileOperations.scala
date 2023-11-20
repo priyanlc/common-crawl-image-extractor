@@ -47,7 +47,8 @@ object FileOperations {
 
 
 
-  def copyToHdfs(localFilePath: String, hdfsDestPath: String, hdfsClient: FileSystem, maxRetries: Int = 3): Try[Unit] = {
+  def copyToHdfs(localFilePath: String, hdfsDestPath: String, maxRetries: Int = 3)(implicit spark: SparkSession): Try[Unit] = {
+    val hdfsClient = FileSystem.get(spark.sparkContext.hadoopConfiguration)
     def attemptCopy(retries: Int): Try[Unit] = {
       Using.Manager { use =>
         val localPath = new Path(localFilePath)
@@ -82,12 +83,14 @@ object FileOperations {
   }
 
 
+  import java.io.{BufferedInputStream, FileOutputStream, IOException}
+  import java.net.{HttpURLConnection, URL}
+  import scala.annotation.tailrec
 
-
-  def downloadFile(watFileUrl: String, destinationPath: String): Try[Unit] = {
+  def downloadFile(watFileUrl: String, destinationPath: String): Boolean = {
     @tailrec
-    def attemptDownload(retries: Int): Try[Unit] = {
-      Try {
+    def attemptDownload(retries: Int): Boolean = {
+      try {
         val url = new URL(watFileUrl)
         val connection = url.openConnection().asInstanceOf[HttpURLConnection]
 
@@ -112,6 +115,8 @@ object FileOperations {
             }) {
               fileOutputStream.write(buffer, 0, bytesRead)
             }
+            println("### Downloaded file " + watFileUrl)
+            true
           } finally {
             inputStream.close()
             fileOutputStream.close()
@@ -119,23 +124,22 @@ object FileOperations {
         } finally {
           connection.disconnect()
         }
-        println("### Downloaded  file " +watFileUrl)
-      } match {
-        case Success(_) =>
-          Success(())
-        case Failure(e) =>
+      } catch {
+        case e: Exception =>
           if (retries > 0) {
             println(s"Failed to download file, retrying in 5 seconds... ($retries retries left), error: ${e.getMessage}")
-            Thread.sleep(10000) // Wait for 5 seconds before retrying
+            Thread.sleep(5000) // Wait for 5 seconds before retrying
             attemptDownload(retries - 1)
           } else {
-            Failure(e)
+            println(s"Failed to download file, no more retries, error: ${e.getMessage}")
+            false
           }
       }
     }
 
     attemptDownload(10) // Number of retries is set to 10
   }
+
 
   def exportHiveTableToHdfsCsv(hiveTable: HiveTable, hdfsPath: String)(implicit spark: SparkSession): Unit = {
     val warcFileListDf = spark.table(hiveTable.hiveTableName)
@@ -173,12 +177,13 @@ object FileOperations {
 
 
 
-  def readWatFilesList(hdfsClient: FileSystem, watFilePath: String): Seq[String] = {
+  def readWatFilesList(watFilePath: String)(implicit spark: SparkSession): Seq[String] = {
 
+    val hdfsClient = FileSystem.get(spark.sparkContext.hadoopConfiguration)
     val directoryPath = new Path(watFilePath)
     val fileNames = ListBuffer[String]()
 
-    if (hdfsClient.isDirectory(directoryPath)) {
+    if (hdfsClient.exists(directoryPath)) {
       val statusList: Array[FileStatus] = hdfsClient.listStatus(directoryPath)
       for (status <- statusList) {
         val filePath = status.getPath
@@ -201,7 +206,8 @@ object FileOperations {
     fileNames.toSeq
   }
 
-  def keepTrackOfProcessedFile(hdfsClient: FileSystem, fileName: String, processedFolderPath: String): Unit = {
+  def keepTrackOfProcessedFile(fileName: String, processedFolderPath: String)(implicit spark: SparkSession): Unit = {
+    val hdfsClient = FileSystem.get(spark.sparkContext.hadoopConfiguration)
     val processedFilePath = new Path(processedFolderPath, fileName)
     hdfsClient.create(processedFilePath).close()
   }
@@ -219,7 +225,7 @@ object FileOperations {
     val start = System.nanoTime()
     val result = block // call-by-name
     val end = System.nanoTime()
-    println(s"Elapsed time: ${(end - start) / 1e9} seconds")
+    println(s"Elapsed time: ${(end - start) / (1e9*60)} minutes")
     result
   }
 

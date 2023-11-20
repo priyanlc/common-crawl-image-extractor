@@ -286,7 +286,7 @@ class ExtractWATContentsTest extends AnyFunSuite with SharedSparkContext{
 
 
   test("read wat file list ") {
-   val watFileList =  readWatFilesList(hdfsClient,watCsvExport)
+   val watFileList =  readWatFilesList(watCsvExport)
     assert(watFileList.nonEmpty)
   }
 
@@ -299,7 +299,7 @@ class ExtractWATContentsTest extends AnyFunSuite with SharedSparkContext{
 
   test("Keep track of processed files ") {
     val url = "CC-MAIN-20230331113819-20230331143819-00137.warc.wat.gz"
-    keepTrackOfProcessedFile(hdfsClient,url,pathToWatFileArchiveFolder)
+    keepTrackOfProcessedFile(url,pathToWatFileArchiveFolder)
 
     val watFileArchive = listHdfsFiles(pathToWatFileArchiveFolder)
     assert(watFileArchive.length > 0)

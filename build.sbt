@@ -28,7 +28,9 @@ lazy val root = (project in file("."))
 
 libraryDependencies ++= Seq(
   // Spark SQL for DataFrame operations
-  "org.apache.spark" %% "spark-sql" % "3.3.2",
+  "org.apache.spark" %% "spark-sql"  % "3.3.2",
+
+  "org.apache.spark" %%  "spark-hive" % "3.3.2",
 
   // ScalaTest for testing
   "org.scalatest" %% "scalatest" % "3.2.15" % Test,

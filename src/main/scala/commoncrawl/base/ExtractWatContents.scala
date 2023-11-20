@@ -59,7 +59,7 @@ object ExtractWatContents {
     extractWatFileToHiveTable(fullyQualifiedWatFileName)(hiveTable)
     val fileName = new Path(fullyQualifiedWatFileName).getName
     val hdfsClient = FileSystem.get(spark.sparkContext.hadoopConfiguration)
-    keepTrackOfProcessedFile(hdfsClient,fileName,processedFolderPath)
+    keepTrackOfProcessedFile(fileName,processedFolderPath)
 
   }
 

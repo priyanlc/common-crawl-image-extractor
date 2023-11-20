@@ -4,13 +4,12 @@ import org.apache.hadoop.fs.FileSystem
 
 object Configuration {
 
-  val watFileUrlListPath = "src/test/resources/hdfs_file_system/outputs/wat_filename.csv"
+  val watFileUrlListPath = "hdfs://master:9000/user/hduser/jpn/10k_wat_files/"
 
-  val pathToWatFileStagingArea = "src/test/resources/hdfs_file_system/outputs/wat_staging_area/"
+  val pathToWatFileStagingArea = "/media/priyan/data1/hdfs/temp/"
 
-  val pathToWatFileHdfsFolder = "src/test/resources/hdfs_file_system/outputs/raw_wat"
+  val pathToWatFileHdfsFolder = "hdfs://master:9000/user/hduser/jpn/raw_wat_files/"
 
-  val downloadedWatFileState = "src/test/resources/hdfs_file_system/outputs/downloaded_wat_file_list"
-
+  val downloadedWatFileState = "hdfs://master:9000/user/hduser/jpn/downloaded_wat_file_list/"
 
 }
