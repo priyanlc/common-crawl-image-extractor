@@ -1,13 +1,11 @@
-package commoncrawl.base
+package commoncrawl.base.kr
 
-import commoncrawl.base.Configuration.{createSparkSession, downloadedWatFileState, pathToWatFileHdfsFolder2, pathToWatFileStagingArea, watFileUrlListPath}
+import commoncrawl.base.Configuration.{createSparkSession, downloadedKrWatFileState, downloadedWatFileState, pathToKrWatFileHdfsFolder1, pathToWatFileHdfsFolder2, pathToWatFileStagingArea, watFileKrUrlListPath, watFileUrlListPath}
 import commoncrawl.base.FileOperations.{copyToHdfs, downloadFile, extractFileNameFromURL, getProcessedFileNames, keepTrackOfProcessedFile, pauseExecution, readWatFilesList, time}
-import org.apache.spark.SparkConf
-import org.apache.spark.sql.SparkSession
 import org.apache.hadoop.security.UserGroupInformation
+import org.apache.spark.sql.SparkSession
 
-object DownloadWatFiles {
-
+object DownloadKrWatFilesB {
 
   def main(args: Array[String]): Unit = {
     time {
@@ -19,13 +17,15 @@ object DownloadWatFiles {
         System.exit(1)
       }
 
-      implicit val spark: SparkSession =  createSparkSession("DownloadWatFIles")
+      implicit val spark: SparkSession = createSparkSession("DownloadKrWatFIles")
 
       val numberOfFilesToDownload = args(0).toInt
 
-      var processedFiles = getProcessedFileNames(downloadedWatFileState)
+      var processedFiles = getProcessedFileNames(downloadedKrWatFileState)
 
-      val watFiles = readWatFilesList( watFileUrlListPath)
+
+      
+      val watFiles = readWatFilesList(watFileKrUrlListPath)
 
       var filesDownloaded = 0
 
@@ -34,13 +34,13 @@ object DownloadWatFiles {
         val watFileName = extractFileNameFromURL(watFileUrl)
         if (!processedFiles.contains(watFileName) && filesDownloaded < numberOfFilesToDownload) {
           if (downloadFile(watFileUrl, pathToWatFileStagingArea)) {
-              pauseExecution(5)
-              copyToHdfs(pathToWatFileStagingArea + watFileName, pathToWatFileHdfsFolder2)
-              pauseExecution(5)
-              keepTrackOfProcessedFile( watFileName, downloadedWatFileState)
-              processedFiles += watFileName
+            pauseExecution(5)
+            copyToHdfs(pathToWatFileStagingArea + watFileName, pathToKrWatFileHdfsFolder1)
+            pauseExecution(5)
+            keepTrackOfProcessedFile(watFileName, downloadedKrWatFileState)
+            processedFiles += watFileName
 
-              filesDownloaded += 1
+            filesDownloaded += 1
           }
         }
       }

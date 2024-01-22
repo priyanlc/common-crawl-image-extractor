@@ -3,37 +3,13 @@ package commoncrawl.base
 import java.nio.file.{Files, Paths, StandardCopyOption}
 import org.apache.hadoop.fs.{FileStatus, FileSystem, Path}
 
-import java.io.{BufferedInputStream, FileOutputStream}
-import java.net.URL
 import scala.util.{Try, Using}
-import org.apache.hadoop.fs.{FileSystem, Path}
-import org.apache.spark.sql.SparkSession
+import org.apache.spark.sql.{AnalysisException, SparkSession}
 
 import scala.collection.mutable.ListBuffer
 import java.io.BufferedReader
 import java.io.InputStreamReader
-import java.io.{BufferedInputStream, FileOutputStream, IOException}
-import java.net.{HttpURLConnection, URL}
-import scala.util.{Try, Using}
-import org.apache.hadoop.fs.{FileSystem, Path}
-
-import scala.util.{Try, Using}
 import scala.util.control.NonFatal
-import java.io.{BufferedInputStream, FileOutputStream, IOException}
-import java.net.{HttpURLConnection, URL}
-import scala.util.{Try, Using}
-import java.io.{BufferedInputStream, FileOutputStream, IOException}
-import java.net.{HttpURLConnection, URL}
-import scala.util.{Failure, Success, Try}
-import java.io.{BufferedInputStream, FileOutputStream, IOException}
-import java.net.{HttpURLConnection, URL}
-import scala.util.{Failure, Success, Try}
-import java.io.{BufferedInputStream, FileOutputStream, IOException}
-import java.net.{HttpURLConnection, URL}
-import scala.annotation.tailrec
-import scala.util.{Failure, Success, Try}
-
-
 
 object FileOperations {
 
@@ -43,8 +19,6 @@ object FileOperations {
 
     Files.move(sourcePath, destinationPath, StandardCopyOption.REPLACE_EXISTING)
   }
-
-
 
 
   def copyToHdfs(localFilePath: String, hdfsDestPath: String, maxRetries: Int = 3)(implicit spark: SparkSession): Try[Unit] = {
@@ -141,8 +115,8 @@ object FileOperations {
   }
 
 
-  def exportHiveTableToHdfsCsv(hiveTable: HiveTable, hdfsPath: String)(implicit spark: SparkSession): Unit = {
-    val warcFileListDf = spark.table(hiveTable.hiveTableName)
+  def exportHiveTableToHdfsCsv(deltaTable: DeltaLocalTable, hdfsPath: String)(implicit spark: SparkSession): Unit = {
+    val warcFileListDf= spark.read.format("delta").load(deltaTable.deltaTablePathExtended)
     import spark.implicits._
     warcFileListDf.coalesce(1)
       .write
@@ -231,6 +205,18 @@ object FileOperations {
 
   def pauseExecution(seconds: Int): Unit = {
     Thread.sleep(seconds * 1000L) // Multiply by 1000 to convert seconds to milliseconds
+  }
+
+  def doesDeltaTableExist(tablePath: String)(implicit spark: SparkSession): Boolean = {
+    try {
+      // Attempt to read the Delta table
+      spark.read.format("delta").load(tablePath)
+      true
+    } catch {
+      case e: AnalysisException if e.message.contains("Path does not exist") =>
+        false
+      case e: Throwable => throw e // Re-throw other exceptions
+    }
   }
 
 }

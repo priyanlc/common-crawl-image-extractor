@@ -1,12 +1,12 @@
 package commoncrawl.base
 
 import commoncrawl.base.FileOperations.{getProcessedFileNames, keepTrackOfProcessedFile, listHdfsFiles}
+import io.delta.tables.DeltaTable
 import org.apache.hadoop.fs.{FileSystem, Path}
-import org.apache.spark
 import org.apache.spark.sql.{SaveMode, functions}
 import org.apache.spark.sql.functions.{col, explode, lit, regexp_replace}
 
-case class HiveTable(hiveTableName: String, hiveTablePath: String)
+case class DeltaLocalTable(deltaTableName: String, deltaTablePath: String, deltaTablePathExtended: String)
 
 object ExtractWatContents {
 
@@ -32,30 +32,29 @@ object ExtractWatContents {
 
   }
 
-  def createHiveTableIfNotExist(fullyQualifiedTableName: String, hiveTablePath: String, df: DataFrame): Unit = {
+  def createDeltaTableIfNotExist(deltaTable:DeltaLocalTable, df: DataFrame): Unit = {
        df.write.mode(SaveMode.Overwrite)
-         .format("parquet")
-         .option("path", hiveTablePath)
-         .saveAsTable(fullyQualifiedTableName)
+         .format("delta")
+         .save(deltaTable.deltaTablePathExtended)
+
   }
 
-  private def appendDataframeToHiveTable(fullyQualifiedTableName: String, df: DataFrame): Unit ={
-    df.write.mode(SaveMode.Append)
-      .format("parquet")
-      .saveAsTable(fullyQualifiedTableName)
+  private def appendDataframeToDeltaTable(deltaTable:DeltaLocalTable, df: DataFrame): Unit ={
+      df.write.format("delta")
+         .mode(SaveMode.Append).save(deltaTable.deltaTablePathExtended)
   }
 
-  def insertOrAppendToHiveTable( dataFrame: DataFrame)(hiveTable: HiveTable)(implicit spark: SparkSession): Unit = {
+  def insertOrAppendToDeltaTable(dataFrame: DataFrame)(deltaTableToSave: DeltaLocalTable)(implicit spark: SparkSession): Unit = {
 
-    if(spark.catalog.tableExists(hiveTable.hiveTableName))
-      appendDataframeToHiveTable(hiveTable.hiveTableName,dataFrame)
+    val doesTableExist= FileOperations.doesDeltaTableExist(deltaTableToSave.deltaTablePathExtended)
+    if(doesTableExist)
+      appendDataframeToDeltaTable(deltaTableToSave,dataFrame)
     else
-      createHiveTableIfNotExist(hiveTable.hiveTableName,hiveTable.hiveTablePath,dataFrame)
-
+      createDeltaTableIfNotExist(deltaTableToSave,dataFrame)
   }
 
   // Function to process a file
-  def processFile(fullyQualifiedWatFileName:String, processedFolderPath: String)(hiveTable: HiveTable)(implicit spark: SparkSession): Unit = {
+  def processFile(fullyQualifiedWatFileName:String, processedFolderPath: String)(hiveTable: DeltaLocalTable)(implicit spark: SparkSession): Unit = {
     extractWatFileToHiveTable(fullyQualifiedWatFileName)(hiveTable)
     val fileName = new Path(fullyQualifiedWatFileName).getName
     val hdfsClient = FileSystem.get(spark.sparkContext.hadoopConfiguration)
@@ -63,21 +62,33 @@ object ExtractWatContents {
 
   }
 
-  private def extractWatFileToHiveTable(fullyQualifiedWatFileName:String)(hiveTable: HiveTable)(implicit spark: SparkSession): Unit = {
+  private def extractWatFileToHiveTable(fullyQualifiedWatFileName:String)(hiveTable: DeltaLocalTable)(implicit spark: SparkSession): Unit = {
     val df = extractWATContentsAsDataframe(fullyQualifiedWatFileName)
-    insertOrAppendToHiveTable(df)(hiveTable)
+    insertOrAppendToDeltaTable(df)(hiveTable)
   }
 
-
-  def processRawWatFiles(rawWatFilesPath:String,processedFilePath:String)(hiveTable: HiveTable)(implicit spark:SparkSession) : Set[String] ={
+/*
+ *   @param:rawWatFilesPath - This is where the RAW wat files will be located
+ *   @param:processedFilePath - This is where the list of processed files will be located
+ *   @param:explodedFileLocation - This is where the exploded wat files will be saved
+ */
+  def processRawWatFiles(rawWatFilesPath:String,processedFilePath:String)(explodedFileLocation: DeltaLocalTable)(implicit spark:SparkSession) : Set[String] ={
 
    var processedFiles =  getProcessedFileNames(processedFilePath)
    val watFilePaths =  listHdfsFiles(rawWatFilesPath)
 
+    def extractFileName(hdfsPath: String): String = {
+      val pathElements = hdfsPath.split("/")
+      val fullFileName = pathElements.last
+
+      // If you are sure that the format always remains the same, you can use substring to extract the specific part
+      fullFileName
+    }
+
     watFilePaths.foreach { filePath =>
-      if (!processedFiles.contains(filePath)) {
+      if (!processedFiles.contains(extractFileName(filePath))) {
         // Process the file
-        processFile(filePath,processedFilePath)(hiveTable)
+        processFile(filePath,processedFilePath)(explodedFileLocation)
         // Add the processed file to the set
         processedFiles += filePath
       }
@@ -85,55 +96,57 @@ object ExtractWatContents {
     processedFiles
   }
 
- def  extractJpgJpegFromAllUrls(explodedRawWatFilesHiveTable:HiveTable,jpgUrlHiveTable:HiveTable)(implicit spark:SparkSession): Unit = {
-   val dfRawUnfilteredUrls= spark.read.table(explodedRawWatFilesHiveTable.hiveTableName)
+ def  extractJpgJpegFromAllUrls(explodedRawWatFilesDeltaTable:DeltaLocalTable, jpgUrlDeltaTable:DeltaLocalTable)(implicit spark:SparkSession): Unit = {
+   //val dfRawUnfilteredUrls= spark.read.format("delta").table(explodedRawWatFilesDeltaTable.deltaTableName)
+   val dfRawUnfilteredUrls= spark.read.format("delta").load(explodedRawWatFilesDeltaTable.deltaTablePathExtended)
+
    val jpgUrlsDF = dfRawUnfilteredUrls
                             .filter(dfRawUnfilteredUrls("url").isNotNull)
-                            .where("lower(url) like 'http%.jpg'")
+                            .where("lower(url) like 'http%.jpg'").repartition(50)
 
    val jpegUrlsDF = dfRawUnfilteredUrls
                             .filter(dfRawUnfilteredUrls("url").isNotNull)
-                            .where("lower(url) like 'http%.jpeg'")
+                            .where("lower(url) like 'http%.jpeg'").repartition(50)
 
-   jpgUrlsDF.printSchema()
 
-   insertOrAppendToHiveTable(jpgUrlsDF)(jpgUrlHiveTable)
-   insertOrAppendToHiveTable(jpegUrlsDF)(jpgUrlHiveTable)
+   insertOrAppendToDeltaTable(filterJpnDomainFiles(jpgUrlsDF))(jpgUrlDeltaTable)
+   insertOrAppendToDeltaTable(filterJpnDomainFiles(jpegUrlsDF))(jpgUrlDeltaTable)
 
  }
 
-def extractPngFromAllUrls(explodedRawWatFilesHiveTable: HiveTable, pngUrlHiveTable: HiveTable)(implicit spark: SparkSession): Unit = {
-    val dfRawUnfilteredUrls = spark.read.table(explodedRawWatFilesHiveTable.hiveTableName)
+def extractPngFromAllUrls(explodedRawWatFilesDeltaTable: DeltaLocalTable, pngUrlDeltaTable: DeltaLocalTable)(implicit spark: SparkSession): Unit = {
+    val dfRawUnfilteredUrls= spark.read.format("delta").load(explodedRawWatFilesDeltaTable.deltaTablePathExtended)
     val pngUrlsDF = dfRawUnfilteredUrls
       .filter(dfRawUnfilteredUrls("url").isNotNull)
       .where("lower(url) like 'http%.png'")
 
-    insertOrAppendToHiveTable(pngUrlsDF)(pngUrlHiveTable)
+    insertOrAppendToDeltaTable(filterJpnDomainFiles(pngUrlsDF))(pngUrlDeltaTable)
 
 }
 
- def  deduplicateUrls(urlHiveTable: HiveTable, distinctUrlHiveTable: HiveTable)(implicit spark: SparkSession) : Unit = {
-   val dfUrls = spark.read.table(urlHiveTable.hiveTableName)
+ def  deduplicateUrls(urlDeltaTable: DeltaLocalTable, distinctUrlDeltaTable: DeltaLocalTable)(implicit spark: SparkSession) : Unit = {
+
+   val dfUrls= spark.read.format("delta").load(urlDeltaTable.deltaTablePathExtended)
    val dfDeduplicatedUrls= dfUrls.dropDuplicates("url")
 
-   insertOrAppendToHiveTable(dfDeduplicatedUrls)(distinctUrlHiveTable)
+   insertOrAppendToDeltaTable(dfDeduplicatedUrls)(distinctUrlDeltaTable)
 
  }
 
-  def convertFromHdfsToHive(hdfsPath: String,hiveTable: HiveTable)(implicit spark: SparkSession): Unit = {
+  def convertFromHdfsToDelta(hdfsPath: String, deltaTable: DeltaLocalTable)(implicit spark: SparkSession): Unit = {
     val csvDF = spark.read
       .option("header", "true") // use "true" if your file has a header row, else "false"
       .option("inferSchema", "true") // to automatically infer data types; else, define the schema manually
       .csv(hdfsPath)
 
-    csvDF.write.mode("overwrite").saveAsTable(hiveTable.hiveTableName)
+    csvDF.write.mode("overwrite").format("delta").save(deltaTable.deltaTablePathExtended)
   }
 
-  def convertWarcFilePathsToWatFilePaths(warcFileListTable: HiveTable, watFileDestination: HiveTable)(implicit spark: SparkSession): DataFrame = {
+  def convertWarcFilePathsToWatFilePaths(warcFileListTable: DeltaLocalTable, watFileDestination: DeltaLocalTable)(implicit spark: SparkSession): DataFrame = {
     import spark.implicits._
     val prefixVal = "https://data.commoncrawl.org/"
 
-    val warcFileListDf = spark.table(warcFileListTable.hiveTableName)
+    val warcFileListDf = DeltaTable.forPath(spark, warcFileListTable.deltaTablePathExtended).toDF
     val intermediateWatFileNameDf = warcFileListDf
                                     .withColumn("wat_filename_temp", regexp_replace(warcFileListDf("warc_filename"), "\\/warc\\/", "\\/wat\\/"))
                                     .drop("warc_filename")
@@ -143,9 +156,16 @@ def extractPngFromAllUrls(explodedRawWatFilesHiveTable: HiveTable, pngUrlHiveTab
 
     watFileNameDf.withColumn("full_wat_path", functions.concat(lit(prefixVal), watFileNameDf.col("wat_filename")))
       .drop("wat_filename")
-      .write.mode(SaveMode.Overwrite).saveAsTable(watFileDestination.hiveTableName)
+      .write.format("delta").mode(SaveMode.Overwrite).save(watFileDestination.deltaTablePathExtended)
 
-   spark.table(watFileDestination.hiveTableName)
+
+    DeltaTable.forPath(spark, watFileDestination.deltaTablePathExtended).toDF
+  }
+
+  def filterJpnDomainFiles(dfUrls: DataFrame):DataFrame = {
+   dfUrls
+      .where("lower(url) like '%.jp/%'").repartition(50)
+
   }
 
 
