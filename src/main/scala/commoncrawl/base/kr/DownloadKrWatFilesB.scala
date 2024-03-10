@@ -23,8 +23,6 @@ object DownloadKrWatFilesB {
 
       var processedFiles = getProcessedFileNames(downloadedKrWatFileState)
 
-
-      
       val watFiles = readWatFilesList(watFileKrUrlListPath)
 
       var filesDownloaded = 0

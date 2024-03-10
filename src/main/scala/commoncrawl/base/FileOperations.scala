@@ -118,7 +118,7 @@ object FileOperations {
   def exportHiveTableToHdfsCsv(deltaTable: DeltaLocalTable, hdfsPath: String)(implicit spark: SparkSession): Unit = {
     val warcFileListDf= spark.read.format("delta").load(deltaTable.deltaTablePathExtended)
     import spark.implicits._
-    warcFileListDf.coalesce(1)
+    warcFileListDf.coalesce(100)
       .write
       .option("sep", "|")
       .mode("overwrite")

@@ -164,8 +164,12 @@ def extractPngFromAllUrls(explodedRawWatFilesDeltaTable: DeltaLocalTable, pngUrl
 
   def filterJpnDomainFiles(dfUrls: DataFrame):DataFrame = {
    dfUrls
-      .where("lower(url) like '%.jp/%'").repartition(50)
+      .where("lower(url) like '%.jp/%'")
+  }
 
+  def filterKrDomainFiles(dfUrls: DataFrame):DataFrame = {
+    dfUrls
+      .where("lower(url) like '%.kr/%'")
   }
 
 

@@ -11,46 +11,28 @@ object ExtractJpnJpgLinks {
   def main(args: Array[String]): Unit = {
 
     implicit val spark: SparkSession = createSparkSessionWithDelta("ExtractJpgLinks")
-    //extractJpgJpegFromAllUrls(explodedJpnRawWatFilesHiveTable01,jpnJpgLinks01HiveTable)
 
-    val checkpointLocationHttpSource = "/user/hive/warehouse/curated.db/checkpoint/dir/read_jpn_http"
-    val checkpointLocationHttpJpgDestination = "/user/hive/warehouse/curated.db/checkpoint/dir/write_jpn_http"
+    val checkpointJpnHttpJpgDestination = "/user/hive/warehouse/curated.db/checkpoint/dir/write_jpn_http"
 
-
+    val jpHttpLinks = "/user/hive/warehouse/curated.db/jp_http_links"
     val jpnJpgLinks = "/user/hive/warehouse/curated.db/jpn_jpg_links"
 
-    val rawHttpLinksDF = spark.readStream
+    val jpnHttpLinksDF = spark.readStream
     .format("delta")
-    .option("maxFilesPerTrigger", 1)
-    .load(explodedJpnRawWatFilesDeltaTable.deltaTablePathExtended)
+    .option("maxFilesPerTrigger", 4)
+    .load(jpHttpLinks)
 
-    val jpgUrlsDF = rawHttpLinksDF
-      .filter(rawHttpLinksDF("url").isNotNull)
+    val jpgUrlsDF = jpnHttpLinksDF
+      .filter(jpnHttpLinksDF("url").isNotNull)
       .where("lower(url) like 'http%.jpg'")
 
-//    val jpegUrlsDF = rawHttpLinksDF
-//      .filter(rawHttpLinksDF("url").isNotNull)
-//      .where("lower(url) like 'http%.jpeg'").repartition(50)
-
-    val jpnJpgLinksDf = filterJpnDomainFiles(jpgUrlsDF).selectExpr("url")
-   // val jpnJpegLinksDf = filterJpnDomainFiles(jpegUrlsDF).selectExpr("url")
-
-    val query1 =jpnJpgLinksDf.writeStream
+    val query1 = jpgUrlsDF.writeStream
                   .format("delta")
                   .outputMode("append")
-                  .option("checkpointLocation", checkpointLocationHttpJpgDestination)
+                  .option("checkpointLocation", checkpointJpnHttpJpgDestination)
                   .start(jpnJpgLinks)
 
-
-//    val query2 = jpnJpegLinksDf.writeStream
-//      .format("delta")
-//      .outputMode("append")
-//      .option("checkpointLocation", checkpointLocationHttpJpgDestination)
-//      .start(jpnJpgLinks)
-
     query1.awaitTermination()
-   // query2.awaitTermination()
-
 
   }
 
